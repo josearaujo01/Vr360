@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#000000">
+<title>Visualizador 360° VR</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#eee;touch-action:none;-webkit-user-select:none;user-select:none}
+  canvas{display:block;position:fixed;inset:0;width:100%!important;height:100%!important}
+  button,label.btn{font:inherit;font-size:16px;border:0;border-radius:12px;padding:12px 18px;background:#2b3442;color:#fff;cursor:pointer}
+  button.main,label.main{background:#e8a33d;color:#1a1a1a;font-weight:700}
+  button:active,label.btn:active{transform:scale(.97)}
+  #home{position:fixed;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;text-align:center;background:rgba(8,10,14,.78);overflow:auto}
+  #home h1{margin:0 0 4px;font-size:22px}
+  #home p{margin:0;max-width:520px;color:#b9c2cf;font-size:14px;line-height:1.45}
+  #home .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+  #count{font-size:14px;color:#e8a33d;min-height:1.2em}
+  #help{font-size:12.5px!important;color:#8d97a6!important}
+  #menuBtn{position:fixed;top:12px;left:12px;z-index:4;display:none;padding:10px 14px;background:rgba(30,36,46,.85)}
+  #bar{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:4;display:none;gap:8px;padding:8px;border-radius:14px;background:rgba(20,24,32,.9)}
+  #bar button{padding:10px 14px}
+  #panel{position:fixed;z-index:6;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,92vw);max-height:90vh;overflow:auto;display:none;background:rgba(20,24,32,.96);border-radius:16px;padding:16px 18px;box-shadow:0 10px 40px rgba(0,0,0,.6)}
+  #panel h2{margin:0 0 4px;font-size:18px}
+  #panel .hint{font-size:12.5px;color:#9aa4b2;margin:0 0 10px;line-height:1.4}
+  .sl{margin:10px 0}
+  .sl .lab{display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px}
+  .sl .lab b{color:#e8a33d;font-weight:600}
+  .sl input{width:100%;accent-color:#e8a33d}
+  .chk{display:flex;align-items:center;gap:8px;font-size:14px;margin:12px 0}
+  .chk input{width:20px;height:20px;accent-color:#e8a33d}
+  #panel .row{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap}
+  .toast{position:fixed;top:50%;transform:translate(-50%,-50%);z-index:3;pointer-events:none;background:rgba(0,0,0,.7);padding:8px 12px;border-radius:10px;font-size:14px;width:34vw;box-sizing:border-box;text-align:center;opacity:0;transition:opacity .3s}
+  .toast.on{opacity:1}
+</style>
+</head>
+<body>
+
+<div id="home">
+  <h1>Visualizador 360° VR</h1>
+  <p>Escolhe as tuas fotos 360° (JPG equirretangular, proporção 2:1). Depois carrega em <b>Ver nos óculos</b>, põe o telemóvel deitado nos óculos e olha à volta.</p>
+  <div class="row">
+    <button id="pickBtn" class="main">📂 Escolher fotos do telemóvel</button>
+    <input id="fileIn" type="file" accept="image/*" multiple style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+  </div>
+  <div id="count">Sem fotos: a mostrar a grelha de calibração</div>
+  <div class="row">
+    <button id="vrBtn" class="main">🥽 Ver nos óculos</button>
+    <button id="monoBtn">📱 Ver no ecrã</button>
+    <button id="setBtn">⚙️ Ajustar lentes</button>
+  </div>
+  <p id="help">Comando: <b>Enter / botão A</b> = foto seguinte · <b>botão B</b> = anterior · <b>← →</b> = mudar de foto (ou rodar a vista se não houver giroscópio) · <b>↑ ↓ / R</b> = recentrar. Toca no ecrã para abrir a barra de controlo.</p>
+</div>
+
+<button id="menuBtn">☰ Menu</button>
+
+<div id="bar">
+  <button id="bPrev">◀</button>
+  <button id="bNext">▶</button>
+  <button id="bCenter">🎯 Recentrar</button>
+  <button id="bSet">⚙️</button>
+  <button id="bExit">✕ Sair</button>
+</div>
+
+<div id="panel">
+  <h2>Ajustar lentes</h2>
+  <p class="hint">Usa a grelha de calibração: as linhas devem parecer direitas e as duas imagens devem fundir-se numa só, sem esforço. Os ajustes ficam guardados neste telemóvel.</p>
+  <div id="sliders"></div>
+  <label class="chk"><input type="checkbox" id="lockChk"> Manter proporções (ângulo e tamanho mudam juntos)</label>
+  <label class="chk"><input type="checkbox" id="distChk"> Corrigir a distorção das lentes</label>
+  <label class="chk"><input type="checkbox" id="lineChk"> Mostrar linha divisória ao centro</label>
+  <div class="row">
+    <button id="gridBtn">Grelha</button>
+    <button id="resetBtn">Repor</button>
+    <button id="closeSet" class="main">Fechar</button>
+  </div>
+</div>
+
+<div class="toast" id="tL"></div>
+<div class="toast" id="tR"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const D2R=Math.PI/180;
+
+/* ---------- Ajustes (guardados no telemóvel) ---------- */
+const DEF={fov:90,sep:40,vOff:0,k1:0.22,k2:0.10,zoom:1.0,eyeAsp:1.0,lock:true,dist:true,line:false};
+let S=Object.assign({},DEF);
+try{const s=JSON.parse(localStorage.getItem('vr360-ajustes')||'null');if(s)Object.assign(S,s);}catch(e){}
+function save(){try{localStorage.setItem('vr360-ajustes',JSON.stringify(S));}catch(e){}}
+
+/* ---------- Three.js ---------- */
+const renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+document.body.prepend(renderer.domElement);
+const maxTex=Math.min(renderer.capabilities.maxTextureSize||4096,8192);
+
+const scene=new THREE.Scene();
+const cam=new THREE.PerspectiveCamera(75,1,0.1,200);
+const geo=new THREE.SphereGeometry(50,96,64);geo.scale(-1,1,1);
+const mat=new THREE.MeshBasicMaterial({color:0xffffff});
+const sphere=new THREE.Mesh(geo,mat);
+sphere.rotation.y=-Math.PI/2; // centro da foto fica à frente
+scene.add(sphere);
+
+/* passo de pós-processamento: ecrã dividido + correção das lentes */
+const rt=new THREE.WebGLRenderTarget(2,2,{minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,depthBuffer:true});
+const post=new THREE.ShaderMaterial({
+  uniforms:{tex:{value:rt.texture},asp:{value:1},eyeAsp:{value:1},sep:{value:.44},vOff:{value:0},k1:{value:.22},k2:{value:.1},zoom:{value:1},dist:{value:1},line:{value:0}},
+  vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',
+  fragmentShader:[
+    'precision highp float;',
+    'uniform sampler2D tex;uniform float asp,eyeAsp,sep,vOff,k1,k2,zoom,dist,line;varying vec2 vUv;',
+    'void main(){',
+    '  if(line>0.5 && abs(vUv.x-0.5)*asp<0.004){gl_FragColor=vec4(0.45,0.45,0.45,1.);return;}',
+    '  float eye=step(0.5,vUv.x);',
+    '  vec2 c=vec2(0.5+(eye*2.0-1.0)*sep*0.5,0.5+vOff);',
+    '  vec2 d=(vUv-c)*vec2(asp,1.0);',
+    '  float r2=dot(d,d)*4.0;',
+    '  float f=dist>0.5?(1.0+k1*r2+k2*r2*r2):1.0;',
+    '  vec2 dd=d*f/zoom;',
+    '  vec2 s=vec2(0.5+dd.x/eyeAsp,0.5+dd.y);',
+    '  if(s.x<0.0||s.x>1.0||s.y<0.0||s.y>1.0){gl_FragColor=vec4(0.,0.,0.,1.);return;}',
+    '  gl_FragColor=texture2D(tex,s);',
+    '}'].join('\n'),
+  depthTest:false,depthWrite:false
+});
+const postScene=new THREE.Scene();
+postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),post));
+const postCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+
+let W=1,H=1;
+function resize(){
+  W=window.innerWidth;H=window.innerHeight;
+  renderer.setSize(W,H);
+  const pr=renderer.getPixelRatio();
+  rt.setSize(Math.max(2,Math.round(H*pr*S.eyeAsp)),Math.max(2,Math.round(H*pr)));
+}
+window.addEventListener('resize',resize);
+window.addEventListener('orientationchange',()=>setTimeout(resize,200));
+resize();
+
+/* ---------- Texturas ---------- */
+function prepTex(t){
+  t.wrapS=THREE.RepeatWrapping;
+  t.anisotropy=renderer.capabilities.getMaxAnisotropy();
+  if(renderer.capabilities.isWebGL2){t.generateMipmaps=true;t.minFilter=THREE.LinearMipmapLinearFilter;}
+  else{t.generateMipmaps=false;t.minFilter=THREE.LinearFilter;}
+  t.needsUpdate=true;return t;
+}
+function setTex(t){const old=mat.map;mat.map=t;mat.needsUpdate=true;if(old)old.dispose();}
+
+function gridTexture(){
+  const c=document.createElement('canvas');c.width=4096;c.height=2048;const g=c.getContext('2d');
+  g.fillStyle='#1b2230';g.fillRect(0,0,4096,2048);
+  g.strokeStyle='#4f5e78';g.lineWidth=3;
+  for(let i=0;i<=72;i++){const x=i*4096/72;g.beginPath();g.moveTo(x,0);g.lineTo(x,2048);g.stroke();}
+  for(let j=0;j<=36;j++){const y=j*2048/36;g.beginPath();g.moveTo(0,y);g.lineTo(4096,y);g.stroke();}
+  g.strokeStyle='#e8a33d';g.lineWidth=8;
+  g.beginPath();g.moveTo(0,1024);g.lineTo(4096,1024);g.stroke();
+  [0,1024,2048,3072,4096].forEach(x=>{g.beginPath();g.moveTo(x,0);g.lineTo(x,2048);g.stroke();});
+  g.fillStyle='#fff';g.textAlign='center';g.font='bold 110px sans-serif';
+  const lab=[[2048,'FRENTE'],[3072,'DIREITA'],[1024,'ESQUERDA'],[60,'TRÁS'],[4036,'TRÁS']];
+  lab.forEach(([x,t])=>{g.fillText(t,x===60?240:x===4036?3856:x,940);});
+  g.font='bold 70px sans-serif';
+  g.fillText('▲ CIMA',2048,520);g.fillText('▼ BAIXO',2048,1580);
+  // círculos de referência à frente
+  g.strokeStyle='#7fd1ff';g.lineWidth=6;
+  [80,180,300].forEach(r=>{g.beginPath();g.arc(2048,1024,r,0,Math.PI*2);g.stroke();});
+  return prepTex(new THREE.CanvasTexture(c));
+}
+
+let files=[],idx=0,loading=false;
+/* fotos guardadas no próprio site: pasta "fotos" (lista em fotos.txt, ou ficheiros 1.jpg, 2.jpg, 3.jpg...) */
+async function siteList(){
+  if(location.protocol==='file:')return [];
+  // GitHub Pages: lê a lista da pasta "fotos" diretamente do repositório (qualquer nome serve)
+  if(/\.github\.io$/i.test(location.hostname)){
+    try{
+      const owner=location.hostname.split('.')[0];
+      const seg=location.pathname.split('/').filter(Boolean)[0];
+      const repo=(seg&&!/\.html?$/i.test(seg))?seg:location.hostname;
+      const r=await fetch('https://api.github.com/repos/'+owner+'/'+repo+'/contents/fotos',{cache:'no-store'});
+      if(r.ok){
+        const list=(await r.json()).filter(x=>x.type==='file'&&/\.(jpe?g|png|webp)$/i.test(x.name))
+          .sort((a,b)=>a.name.localeCompare(b.name,'pt',{numeric:true}))
+          .map(x=>({url:'fotos/'+encodeURIComponent(x.name),name:x.name}));
+        if(list.length)return list;
+      }
+    }catch(e){}
+  }
+  try{
+    const r=await fetch('fotos.txt',{cache:'no-store'});
+    if(r.ok){
+      const names=(await r.text()).split(/\r?\n/).map(x=>x.trim()).filter(x=>x&&!x.startsWith('#'));
+      if(names.length)return names.map(n=>({url:(n.includes('/')?n:'fotos/'+n),name:n.split('/').pop()}));
+    }
+  }catch(e){}
+  const out=[];
+  for(let i=1;i<=300;i++){
+    let found=null;
+    for(const ext of ['jpg','JPG','jpeg','JPEG','png']){
+      try{const r=await fetch('fotos/'+i+'.'+ext,{method:'HEAD',cache:'no-store'});
+        if(r.ok&&(r.headers.get('content-type')||'').startsWith('image')){found='fotos/'+i+'.'+ext;break;}}catch(e){}
+    }
+    if(!found)break;
+    out.push({url:found,name:found.split('/').pop()});
+  }
+  return out;
+}
+function setCount(from){
+  $('count').textContent=files.length?files.length+(files.length===1?' foto':' fotos')+(from?' '+from:''):'Sem fotos: a mostrar a grelha de calibração';
+}
+async function loadFile(i){
+  if(!files.length){setTex(gridTexture());recenter();toast('Grelha de calibração');return;}
+  if(loading)return;loading=true;
+  idx=(i+files.length)%files.length;
+  const f=files[idx];const isFile=(typeof File!=='undefined'&&f instanceof File);
+  const url=isFile?URL.createObjectURL(f):f.url;
+  try{
+    const img=new Image();img.src=url;await img.decode();
+    let src=img;
+    if(img.naturalWidth>maxTex){
+      const c=document.createElement('canvas');const s=maxTex/img.naturalWidth;
+      c.width=maxTex;c.height=Math.round(img.naturalHeight*s);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);src=c;
+    }
+    setTex(prepTex(new THREE.Texture(src)));
+    recenter();
+    const ratio=img.naturalWidth/img.naturalHeight;
+    toast((files.length>1?(idx+1)+'/'+files.length+' · ':'')+f.name+(Math.abs(ratio-2)>0.05?' (atenção: não é 2:1)':''));
+  }catch(e){toast('Não consegui abrir '+f.name);}
+  finally{if(isFile)setTimeout(()=>URL.revokeObjectURL(url),3000);loading=false;}
+}
+const next=()=>files.length>1&&loadFile(idx+1);
+const prev=()=>files.length>1&&loadFile(idx-1);
+
+$('fileIn').addEventListener('change',e=>{
+  files=Array.from(e.target.files||[]).sort((a,b)=>a.name.localeCompare(b.name,'pt',{numeric:true}));
+  setCount('do telemóvel');
+  loadFile(0);
+});
+
+/* ---------- Giroscópio ---------- */
+let devQ=null,gyroOK=false,needRecenter=true,yawOff=0,lon=0,lat=0;
+const qA=new THREE.Quaternion(-Math.sqrt(.5),0,0,Math.sqrt(.5));
+const zee=new THREE.Vector3(0,0,1),yAxis=new THREE.Vector3(0,1,0);
+const eul=new THREE.Euler(),q0=new THREE.Quaternion(),qYaw=new THREE.Quaternion();
+function screenAngle(){
+  if(screen.orientation&&typeof screen.orientation.angle==='number')return screen.orientation.angle;
+  return window.orientation||0;
+}
+window.addEventListener('deviceorientation',e=>{
+  if(e.alpha==null&&e.beta==null)return;
+  gyroOK=true;
+  eul.set((e.beta||0)*D2R,(e.alpha||0)*D2R,-(e.gamma||0)*D2R,'YXZ');
+  const q=devQ||new THREE.Quaternion();
+  q.setFromEuler(eul);q.multiply(qA);q.multiply(q0.setFromAxisAngle(zee,-screenAngle()*D2R));
+  devQ=q;
+  if(needRecenter)recenter();
+});
+function yawOf(q){const f=new THREE.Vector3(0,0,-1).applyQuaternion(q);return Math.atan2(-f.x,-f.z);}
+function recenter(){
+  lon=0;lat=0;
+  if(devQ){yawOff=-yawOf(devQ);needRecenter=false;}else needRecenter=true;
+}
+function updateCam(){
+  if(gyroOK&&devQ){
+    qYaw.setFromAxisAngle(yAxis,yawOff+lon);
+    cam.quaternion.copy(qYaw).multiply(devQ);
+  }else{
+    cam.quaternion.setFromEuler(eul.set(lat,lon,0,'YXZ'));
+  }
+}
+
+/* ---------- Toque / arrastar ---------- */
+let down=null;
+renderer.domElement.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY,moved:false};});
+window.addEventListener('pointermove',e=>{
+  if(!down)return;const dx=e.clientX-down.x,dy=e.clientY-down.y;
+  if(Math.abs(dx)+Math.abs(dy)>8)down.moved=true;
+  if(down.moved){
+    const k=(vr?S.fov:cam.fov)*D2R/H;
+    lon+=dx*k;if(!gyroOK)lat=clamp(lat+dy*k,-1.5,1.5);
+    down.x=e.clientX;down.y=e.clientY;
+  }
+});
+window.addEventListener('pointerup',()=>{if(down&&!down.moved&&vr)showBar();down=null;});
+
+/* ---------- Comando Bluetooth (teclado / gamepad) ---------- */
+window.addEventListener('keydown',e=>{
+  if(panelOpen())return;
+  const k=e.key;
+  if(k==='Enter'||k===' '||k==='MediaTrackNext'||k==='MediaPlayPause'||k==='AudioVolumeUp')next();
+  else if(k==='MediaTrackPrevious'||k==='Backspace'||k==='AudioVolumeDown')prev();
+  else if(k==='ArrowRight'||k==='ArrowLeft'){
+    const dir=k==='ArrowRight'?1:-1;
+    if(gyroOK){dir>0?next():prev();}else lon-=dir*15*D2R;
+  }else if(k==='ArrowUp'||k==='ArrowDown'){
+    if(gyroOK)recenter();else lat=clamp(lat+(k==='ArrowUp'?1:-1)*10*D2R,-1.5,1.5);
+  }else if(k==='r'||k==='R')recenter();
+  else if(k==='Escape'&&vr)exitVR();
+  else return;
+  e.preventDefault();
+});
+let padPrev=[],stickLatch=false;
+function pollPad(){
+  if(!navigator.getGamepads)return;
+  const pads=navigator.getGamepads();
+  for(const p of pads){
+    if(!p)continue;
+    p.buttons.forEach((b,i)=>{
+      if(b.pressed&&!padPrev[i]){
+        if(i===0)next();else if(i===1)prev();else if(i===2||i===3)recenter();else if(vr)showBar();
+      }
+      padPrev[i]=b.pressed;
+    });
+    const ax=p.axes[0]||0,ay=p.axes[1]||0;
+    if(gyroOK){
+      if(!stickLatch&&Math.abs(ax)>0.7){stickLatch=true;ax>0?next():prev();}
+      if(Math.abs(ax)<0.3)stickLatch=false;
+    }else{
+      if(Math.abs(ax)>0.15)lon-=ax*0.035;
+      if(Math.abs(ay)>0.15)lat=clamp(lat-ay*0.035,-1.5,1.5);
+    }
+    break;
+  }
+}
+
+/* ---------- Modos ---------- */
+let vr=false,wake=null,barTimer=0;
+async function enterVR(){
+  vr=true;$('home').style.display='none';$('menuBtn').style.display='none';
+  const el=document.documentElement;
+  try{const p=el.requestFullscreen&&el.requestFullscreen({navigationUI:'hide'});if(p&&p.catch)p.catch(()=>{});}catch(e){}
+  try{if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function')await DeviceOrientationEvent.requestPermission();}catch(e){}
+  try{await screen.orientation.lock('landscape');}catch(e){}
+  try{if(navigator.wakeLock)wake=await navigator.wakeLock.request('screen');}catch(e){}
+  setTimeout(()=>{resize();recenter();},300);
+  showBar();
+  setTimeout(()=>{if(!gyroOK)toast('Giroscópio não detetado: usa o joystick ou arrasta no ecrã',4000);},2000);
+}
+function exitVR(){
+  vr=false;hideBar();
+  try{if(document.fullscreenElement)document.exitFullscreen();}catch(e){}
+  try{screen.orientation.unlock();}catch(e){}
+  try{if(wake){wake.release();wake=null;}}catch(e){}
+  $('home').style.display='flex';
+}
+function enterMono(){vr=false;$('home').style.display='none';$('menuBtn').style.display='block';recenter();}
+document.addEventListener('visibilitychange',async()=>{
+  if(vr&&document.visibilityState==='visible'&&navigator.wakeLock){try{wake=await navigator.wakeLock.request('screen');}catch(e){}}
+});
+
+function showBar(){$('bar').style.display='flex';clearTimeout(barTimer);barTimer=setTimeout(hideBar,4000);}
+function hideBar(){$('bar').style.display='none';}
+
+$('pickBtn').onclick=()=>{try{$('fileIn').value='';}catch(e){}$('fileIn').click();};
+$('vrBtn').onclick=enterVR;
+$('monoBtn').onclick=enterMono;
+$('menuBtn').onclick=()=>{$('menuBtn').style.display='none';$('home').style.display='flex';};
+$('bPrev').onclick=e=>{e.stopPropagation();prev();showBar();};
+$('bNext').onclick=e=>{e.stopPropagation();next();showBar();};
+$('bCenter').onclick=e=>{e.stopPropagation();recenter();showBar();};
+$('bSet').onclick=e=>{e.stopPropagation();openPanel();};
+$('bExit').onclick=e=>{e.stopPropagation();exitVR();};
+
+/* ---------- Painel de ajustes ---------- */
+const SL=[
+  ['fov','Campo de visão',60,130,1,v=>v+'°'],
+  ['sep','Distância entre lentes',30,70,0.5,v=>v+'% do ecrã'],
+  ['vOff','Altura das lentes',-15,15,0.5,v=>(v>0?'+':'')+v+'%'],
+  ['k1','Distorção (principal)',0,0.8,0.01,v=>v.toFixed(2)],
+  ['k2','Distorção (bordas)',0,0.8,0.01,v=>v.toFixed(2)],
+  ['zoom','Tamanho da imagem',0.6,1.8,0.01,v=>v.toFixed(2)+'×'],
+  ['eyeAsp','Largura da imagem',0.7,1.4,0.01,v=>v.toFixed(2)]
+];
+const box=$('sliders');
+SL.forEach(([key,label,min,max,step,fmt])=>{
+  const d=document.createElement('div');d.className='sl';
+  d.innerHTML='<div class="lab"><span>'+label+'</span><b></b></div><input type="range" min="'+min+'" max="'+max+'" step="'+step+'">';
+  const inp=d.querySelector('input'),out=d.querySelector('b');
+  const sync=()=>{inp.value=S[key];out.textContent=fmt(+S[key]);};
+  inp.addEventListener('input',()=>{
+    const old=S[key],v=+inp.value;S[key]=v;
+    // Manter proporções: ângulo e tamanho mudam juntos para a imagem não ficar esticada/ampliada
+    if(S.lock&&key==='fov'){S.zoom=clamp(S.zoom*Math.tan(v*D2R/2)/Math.tan(old*D2R/2),0.6,1.8);}
+    if(S.lock&&key==='zoom'){S.fov=clamp(2*Math.atan(Math.tan(S.fov*D2R/2)*v/old)/D2R,60,130);}
+    save();syncPanel();
+  });
+  d._sync=sync;sync();box.appendChild(d);
+});
+function syncPanel(){Array.from(box.children).forEach(d=>d._sync());$('distChk').checked=!!S.dist;$('lockChk').checked=!!S.lock;$('lineChk').checked=!!S.line;}
+$('lockChk').onchange=e=>{S.lock=e.target.checked;save();};
+$('distChk').onchange=e=>{S.dist=e.target.checked;save();};
+$('lineChk').onchange=e=>{S.line=e.target.checked;save();};
+$('resetBtn').onclick=()=>{S=Object.assign({},DEF);save();syncPanel();};
+$('gridBtn').onclick=()=>{files=[];setCount();loadFile(0);};
+function openPanel(){
+  hideBar();syncPanel();$('panel').style.display='block';
+  if(!vr){vr=true;$('home').style.display='none';$('menuBtn').style.display='none';} // pré-visualização ao vivo
+}
+function panelOpen(){return $('panel').style.display==='block';}
+$('closeSet').onclick=()=>{$('panel').style.display='none';if(!document.fullscreenElement&&!wake){vr=false;$('home').style.display='flex';}};
+$('setBtn').onclick=openPanel;
+['panel','bar','home','menuBtn'].forEach(id=>$(id).addEventListener('pointerdown',e=>e.stopPropagation()));
+
+/* ---------- Avisos (aparecem nos dois olhos em VR) ---------- */
+let toastTimer=0;
+function toast(msg,ms){
+  const L=$('tL'),R=$('tR');
+  L.textContent=R.textContent=msg;
+  if(vr){
+    const sep=S.sep/100;
+    L.style.left=(50-sep*50)+'%';R.style.left=(50+sep*50)+'%';R.style.display='block';
+  }else{L.style.left='50%';R.style.display='none';}
+  L.classList.add('on');R.classList.add('on');
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>{L.classList.remove('on');R.classList.remove('on');},ms||2200);
+}
+
+/* ---------- Ciclo de desenho ---------- */
+renderer.setAnimationLoop(()=>{
+  pollPad();updateCam();
+  if(vr){
+    cam.fov=S.fov;cam.aspect=S.eyeAsp;cam.updateProjectionMatrix();
+    if(rt.width!==Math.round(H*renderer.getPixelRatio()*S.eyeAsp))resize();
+    renderer.setRenderTarget(rt);renderer.render(scene,cam);renderer.setRenderTarget(null);
+    const u=post.uniforms;
+    u.asp.value=W/H;u.eyeAsp.value=S.eyeAsp;u.sep.value=S.sep/100;u.vOff.value=S.vOff/100;
+    u.k1.value=S.k1;u.k2.value=S.k2;u.zoom.value=S.zoom;u.dist.value=S.dist?1:0;u.line.value=S.line?1:0;
+    renderer.render(postScene,postCam);
+  }else{
+    cam.fov=75;cam.aspect=W/H;cam.updateProjectionMatrix();
+    renderer.render(scene,cam);
+  }
+});
+
+loadFile(0);
+siteList().then(list=>{if(list.length&&!files.length){files=list;setCount('do site');loadFile(0);}});
+})();
+</script>
+</body>
+</html>
